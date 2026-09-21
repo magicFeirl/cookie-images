@@ -11,7 +11,7 @@ for uid in UID_LIST:
     count = 0
 
     for page in range(MAX_CRAW_DRAW_PAGE):
-        items = crawler.fetch_draw_doc_list(uid=uid, page_num=page)
+        items = crawler.fetch_draw_doc_list(uid=uid, page_num=page) or []
         count += len(items)
 
         if not items or page == MAX_CRAW_DRAW_PAGE - 1:
