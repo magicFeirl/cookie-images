@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import ImageInfoDrawer from './ImageInfoDrawer.vue'
-import { THUMB_SUFFIX } from '../config.js'
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -17,18 +16,10 @@ const isOpen = computed(() => props.modelValue !== null && props.modelValue !== 
 const activeImage = computed(() => isOpen.value ? props.images[props.modelValue] : null)
 const hasInfo = computed(() => !!activeImage.value?.info)
 
-const isLoading = ref(false)
-
-// 切换图片时重置缩放，标记加载中
-watch(() => props.modelValue, (val) => {
+// 切换图片时重置缩放
+watch(() => props.modelValue, () => {
   zoomed.value = false
-  if (val !== null && val !== undefined) isLoading.value = true
 })
-
-function onImgLoad() {
-  isLoading.value = false
-  emit('image-loaded', props.modelValue)
-}
 
 // 锁定/恢复 body 滚动条
 watch(isOpen, (open) => {
@@ -115,26 +106,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
         <!-- 图片 -->
         <div class="img-wrap">
-          <!-- 缩略图占位（加载中模糊显示，加载完后淡出） -->
-          <Transition name="thumb-fade">
-            <img
-              v-if="isLoading"
-              :src="activeImage.src + THUMB_SUFFIX"
-              class="img-thumb"
-              aria-hidden="true"
-            />
-          </Transition>
-          <!-- 全图 -->
           <img
-            :key="modelValue"
             :src="activeImage.src"
             :alt="activeImage.title"
-            :class="{ zoomed, 'img-hidden': isLoading }"
+            :class="{ zoomed }"
             @click.stop="zoomed = !zoomed"
-            @load="onImgLoad"
+            @load="emit('image-loaded', modelValue)"
           />
-          <!-- 加载旋转指示器 -->
-          <div v-if="isLoading" class="img-spinner" />
         </div>
 
         <!-- 底部信息 -->
@@ -220,49 +198,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   cursor: zoom-out;
 }
 
-/* 全图加载中隐藏（缩略图在后面显示） */
-.img-wrap img.img-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* 缩略图占位：绝对定位 */
-.img-thumb {
-  position: absolute;
-  max-width: 90vw;
-  max-height: 80vh;
-  object-fit: contain;
-  border-radius: 6px;
-  pointer-events: none;
-}
-
-/* 缩略图淡出 */
-.thumb-fade-leave-active {
-  transition: opacity 0.25s ease;
-  position: absolute;
-}
-.thumb-fade-leave-to {
-  opacity: 0;
-}
-
-/* 旋转加载指示器 */
-@keyframes spin {
-  to { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
-.img-spinner {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 36px;
-  height: 36px;
-  border: 3px solid rgba(255, 255, 255, 0.2);
-  border-top-color: rgba(255, 255, 255, 0.8);
-  border-radius: 50%;
-  transform: translate(-50%, -50%);
-  animation: spin 0.7s linear infinite;
-  pointer-events: none;
-}
 
 /* 底部 */
 .footer {
