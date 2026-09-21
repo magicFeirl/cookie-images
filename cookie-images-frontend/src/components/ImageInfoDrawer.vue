@@ -2,7 +2,9 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  info: { type: String, required: true }, // 原始文本
+  info:  { type: String, required: true },
+  dynId: { type: [String, Number], default: null },
+  src:   { type: String, default: '' },
 })
 
 const emit = defineEmits(['tag-click'])
@@ -12,7 +14,37 @@ const emit = defineEmits(['tag-click'])
 // 支持三种来源格式，无法识别时返回 { source:'未知', raw }
 // ─────────────────────────────────────────────
 function parseInfo(text) {
-  const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean)
+  let normalized = text.trim()
+
+  // Pixiv 单行：标题 Pixiv ID: \d+ 投稿者(id=\d+): Name  TAG1 | TAG2
+  if (!normalized.includes('\n') && /Pixiv ID:\s*\d+|投稿者\(id=\d+\):/.test(normalized)) {
+    normalized = normalized
+      .replace(/\s+(Pixiv ID:)/, '\n$1')               // Pixiv ID 前换行
+      .replace(/\s+(投稿者\(id=)/, '\n$1')              // 投稿者 前换行
+      .replace(/(投稿者\(id=\d+\):\s*\S+)\s{2,}/, '$1\n') // 作者后多空格 → 标签行换行
+  }
+
+  // NicoSeiga 旧单行：im\d+ 标题 投稿者: Name (/user/...) TAG1 | TAG2
+  if (!normalized.includes('\n') && /^im\d+/.test(normalized)) {
+    normalized = normalized
+      .replace(/(im\d+)\s+/, '$1\n')          // ID 后换行
+      .replace(/\s+(投稿者:\s*)/, '\n$1')      // 投稿者 前换行
+      .replace(/\)\s+(?=\S)/, ')\n')           // 作者括号后换行（标签行）
+  }
+
+  // X 旧单行：twitter/x URL + 投稿者: name | id caption + 投稿时间
+  if (!normalized.includes('\n') && /https?:\/\/(twitter\.com|x\.com|t\.co)\//.test(normalized)) {
+    normalized = normalized
+      .replace(/(https?:\/\/\S+)\s+/, '$1\n')                        // URL 后换行
+      .replace(/\s+(投稿时间)/, '\n$1')                               // 投稿时间 前换行
+      .replace(/(投稿者:\s*[^|\n]+?)\s*\|\s*(\d{10,})/, '$1\n$2')   // author | id 拆行
+      .replace(/(\d{15,})\s+(\S)/, '$1\n$2')                         // id 后换行（caption）
+  }
+
+  // 通用：投稿者行内含 原推：URL，拆分为两行
+  normalized = normalized.replace(/(投稿者:[^\n]*?)\s{1,}(原推[:：])/g, '$1\n$2')
+
+  const lines = normalized.split('\n').map(l => l.trim()).filter(Boolean)
 
   // ── Pixiv ──
   // 特征：含 "Pixiv ID: <数字>" 行 或 "投稿者(id=<数字>): <名>" 行
@@ -34,36 +66,84 @@ function parseInfo(text) {
   }
 
   // ── NicoSeiga ──
-  // 特征：含独立的 "im<数字>" 行
-  const nicoseigaIdLine = lines.find(l => /^im\d+$/.test(l))
+  // 特征：含 "im<数字>" 开头的行（ID 后可跟标题）
+  const nicoseigaIdLine = lines.find(l => /^im\d+/.test(l))
   if (nicoseigaIdLine) {
+    const idMatch      = nicoseigaIdLine.match(/^(im\d+)\s*(.*)$/)
+    const nicoseigaId  = idMatch[1]
+    const titleFromId  = idMatch[2]?.trim() || undefined
+
     const authorLine = lines.find(l => /^投稿者:\s/.test(l))
-    // 格式：投稿者: Name (/user/...)
-    const am         = authorLine?.match(/^投稿者:\s*(.+?)\s*\((.+)\)$/)
-    const tagLine    = lines.find(l => l.includes(' | '))
-    const used       = new Set([nicoseigaIdLine, authorLine, tagLine].filter(Boolean))
+    // 格式1：投稿者: Name (/user/...)  格式2：投稿者: Name (user/...)
+    const am = authorLine?.match(/^投稿者:\s*(.+?)\s*\(\/?(.+)\)$/)
+
+    // 标签格式1：TAG1 | TAG2
+    const tagPipeLine = lines.find(l => l.includes(' | '))
+    // 标签格式2：<TAG🔒] 或 <TAG]（每行一个）
+    const bracketTagLines = lines.filter(l => /^<.+🔒?\]$/.test(l))
+
+    // 参考链接：文字列→URL
+    const refLinkLine = lines.find(l => /→https?:\/\//.test(l))
+    const externalUrl = refLinkLine?.match(/→(https?:\/\/\S+)/)?.[1]
+
+    // 时间行（跳过，不作为标题）
+    const timeLine = lines.find(l => /^投稿时间/.test(l))
+
+    const used = new Set([
+      nicoseigaIdLine, authorLine, tagPipeLine, refLinkLine, timeLine,
+      ...bracketTagLines,
+    ].filter(Boolean))
+
+    let tags = []
+    if (tagPipeLine) {
+      tags = tagPipeLine.split(' | ').map(t => t.trim())
+    } else if (bracketTagLines.length) {
+      tags = bracketTagLines.map(l => l.match(/^<(.+?)🔒?\]$/)?.[1]?.trim()).filter(Boolean)
+    }
+
     return {
       source:       'NicoSeiga',
-      nicoseigaId:  nicoseigaIdLine,
-      title:        lines.find(l => !used.has(l)),
+      nicoseigaId,
+      title:        titleFromId ?? lines.find(l => !used.has(l)),
       author:       am?.[1]?.trim() ?? authorLine?.replace(/^投稿者:\s*/, ''),
       authorLink:   am?.[2],
-      tags:         tagLine?.split(' | ').map(t => t.trim()) ?? [],
+      externalUrl,
+      tags,
     }
   }
 
   // ── X ──
-  // 特征：含 "投稿者: <名>"（无括号 id/link），或含 15 位以上纯数字行（post ID）
-  const xAuthorLine = lines.find(l => /^投稿者:\s/.test(l) && !/\(id=/.test(l) && !/\(\/user\//.test(l))
-  const postIdLine  = lines.find(l => /^\d{15,}$/.test(l))
-  if (xAuthorLine || postIdLine) {
-    const used    = new Set([xAuthorLine, postIdLine].filter(Boolean))
+  // 特征：含 "投稿者: <名>"（无括号 user/link），或含 15 位以上纯数字行，或含 Twitter/X/t.co URL
+  // 排除 NicoSeiga 的作者行格式 (user/...) / (/user/...)；允许 (id=Twitter用户ID)
+  const xAuthorLine    = lines.find(l => /^投稿者:\s/.test(l) && !/\(\/?user\//.test(l))
+  const postIdLine     = lines.find(l => /^\d{15,}$/.test(l))
+  const directUrlLine  = lines.find(l => /^https?:\/\/(twitter\.com|x\.com)\/\S+\/status\/\d+/.test(l))
+  const tcoUrlLine     = lines.find(l => /^https?:\/\/t\.co\/\S+/.test(l))
+  const gensuiLine     = lines.find(l => /原推[:：]/.test(l))
+  const gensuiUrl      = gensuiLine?.match(/原推[:：]\s*(https?:\/\/\S+)/)?.[1]
+  const xTimeLine      = lines.find(l => /^投稿时间/.test(l))
+
+  if (xAuthorLine || postIdLine || directUrlLine || tcoUrlLine || gensuiLine) {
+    // 来源 URL：直接链接 > 原推链接 > t.co 缩短链接
+    const twitterUrl = directUrlLine ?? gensuiUrl ?? (tcoUrlLine ? tcoUrlLine : null)
+    // post ID：独立 ID 行 > 直接链接 > 原推链接
+    const postId = postIdLine
+      ?? directUrlLine?.match(/\/status\/(\d+)/)?.[1]
+      ?? gensuiUrl?.match(/\/status\/(\d+)/)?.[1]
+
+    const used = new Set([xAuthorLine, postIdLine, directUrlLine, tcoUrlLine, gensuiLine, xTimeLine].filter(Boolean))
     const caption = lines.filter(l => !used.has(l)).join('\n') || undefined
+
+    // 去除作者名末尾的 Twitter 用户 ID：因幡瞳 (id=840578110621863937) → 因幡瞳
+    const authorRaw = xAuthorLine?.replace(/^投稿者:\s*/, '') ?? ''
+    const author = authorRaw.replace(/\s*\(id=\d+\)\s*$/, '').trim() || undefined
+
     return {
-      source:  'X',
-      author:  xAuthorLine?.replace(/^投稿者:\s*/, ''),
+      source: 'X',
+      author,
       caption,
-      postId:  postIdLine,
+      postId,
+      twitterUrl,
     }
   }
 
@@ -86,7 +166,7 @@ const sourceUrl = computed(() => {
   const p = parsed.value
   if (p.source === 'Pixiv'     && p.pixivId)      return `https://www.pixiv.net/artworks/${p.pixivId}`
   if (p.source === 'NicoSeiga' && p.nicoseigaId)  return `https://seiga.nicovideo.jp/seiga/${p.nicoseigaId}`
-  if (p.source === 'X'         && p.postId)        return `https://x.com/i/web/status/${p.postId}`
+  if (p.source === 'X')                            return p.twitterUrl ?? null
   return null
 })
 
@@ -141,6 +221,14 @@ const SOURCE_CONFIG = {
             <span v-if="parsed.authorLink" class="dim">{{ parsed.authorLink }}</span>
           </span>
         </div>
+        <a
+          v-if="parsed.externalUrl"
+          :href="parsed.externalUrl"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="source-link"
+          @click.stop
+        >参考来源 ↗</a>
       </template>
 
       <!-- ── X ── -->
@@ -183,6 +271,26 @@ const SOURCE_CONFIG = {
         class="source-link"
         @click.stop
       >前往来源 ↗</a>
+
+      <!-- B 站动态链接 -->
+      <a
+        v-if="dynId"
+        :href="`https://www.bilibili.com/opus/${dynId}`"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="source-link bili-link"
+        @click.stop
+      >B 站动态 ↗</a>
+
+      <!-- 下载（跳转原图） -->
+      <a
+        v-if="src"
+        :href="src"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="source-link"
+        @click.stop
+      >下载原图 ↗</a>
 
     </div>
   </aside>
@@ -334,5 +442,15 @@ const SOURCE_CONFIG = {
 .source-link:hover {
   border-color: rgba(255, 255, 255, 0.4);
   color: #fff;
+}
+
+.bili-link {
+  border-color: rgba(0, 161, 214, 0.3);
+  color: rgba(0, 161, 214, 0.7);
+}
+
+.bili-link:hover {
+  border-color: #00a1d6;
+  color: #00a1d6;
 }
 </style>

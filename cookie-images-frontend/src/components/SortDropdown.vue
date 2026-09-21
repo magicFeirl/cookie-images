@@ -1,6 +1,10 @@
 <script setup>
 import FilterDropdown from './FilterDropdown.vue'
 
+const props = defineProps({
+  storageKey: { type: String, default: '' },
+})
+
 const emit = defineEmits(['change'])
 
 const sortGroups = [
@@ -14,5 +18,10 @@ const sortGroups = [
 </script>
 
 <template>
-  <FilterDropdown label="排序" :groups="sortGroups" @change="emit('change', $event)" />
+  <FilterDropdown
+    label="排序"
+    :groups="sortGroups"
+    :storage-key="storageKey"
+    @change="emit('change', $event)"
+  />
 </template>

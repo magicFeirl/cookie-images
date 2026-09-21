@@ -1,19 +1,27 @@
 <script setup>
-defineProps({
-  image: {
-    type: Object,
-    required: true,
-    // { id, src, title, author, likes, views }
-  },
+import { computed } from 'vue'
+import { THUMB_SUFFIX } from '../config.js'
+
+const prop = defineProps({
+  image: { type: Object, required: true },
 })
 
 const emit = defineEmits(['open'])
+
+const postAt = computed(() => {
+  if (!prop.image.ctime) return ''
+  const d = new Date(prop.image.ctime * 1000)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+})
 </script>
 
 <template>
   <div class="card" :data-image-id="image.id" @click="emit('open')">
     <div class="card-img-wrap">
-      <img :src="image.src" :alt="image.title" loading="lazy" />
+      <img :src="image.src + THUMB_SUFFIX" :alt="image.title" loading="lazy" />
       <div class="card-overlay">
         <span class="overlay-hint">查看大图</span>
       </div>
@@ -21,7 +29,7 @@ const emit = defineEmits(['open'])
     <div class="card-info">
       <p class="card-title">{{ image.title }}</p>
       <div class="card-meta">
-        <span class="card-author">{{ image.author }}</span>
+        <span class="card-author">{{ postAt }}</span>
         <div class="card-stats">
           <span>♥ {{ image.likes }}</span>
           <span>◎ {{ image.views }}</span>

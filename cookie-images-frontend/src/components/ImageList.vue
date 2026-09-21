@@ -68,21 +68,31 @@ let ro, io
 
 onMounted(() => {
   window.addEventListener('scroll', onScroll, { passive: true })
-  nextTick(() => {
-    measure()
-    ro = new ResizeObserver(measure)
-    ro.observe(gridRef.value)
-    io = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !props.loadingMore && !props.searching) emit('load-more')
-    })
-    io.observe(sentinelRef.value)
-  })
 })
 
 onUnmounted(() => {
   window.removeEventListener('scroll', onScroll)
   ro?.disconnect()
   io?.disconnect()
+})
+
+// gridRef 出现时绑定 ResizeObserver
+watch(gridRef, (el) => {
+  ro?.disconnect()
+  if (!el) return
+  measure()
+  ro = new ResizeObserver(measure)
+  ro.observe(el)
+})
+
+// sentinelRef 出现时绑定 IntersectionObserver
+watch(sentinelRef, (el) => {
+  io?.disconnect()
+  if (!el) return
+  io = new IntersectionObserver(([entry]) => {
+    if (entry.isIntersecting && !props.loadingMore && !props.searching) emit('load-more')
+  })
+  io.observe(el)
 })
 
 watch(() => props.images.length, () => nextTick(measure))
@@ -119,10 +129,11 @@ watch(() => props.images.length, () => nextTick(measure))
           />
         </div>
 
-        <div ref="sentinelRef" class="sentinel" />
-        <div v-if="loadingMore" class="loading-more">加载中...</div>
       </template>
     </template>
+
+    <div ref="sentinelRef" class="sentinel" />
+    <div v-if="loadingMore" class="loading-more">加载中...</div>
 
   </main>
 </template>

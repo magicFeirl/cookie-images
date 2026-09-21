@@ -1,97 +1,101 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import AppHeader from './components/AppHeader.vue'
 import ImageList from './components/ImageList.vue'
 import ImageLightbox from './components/ImageLightbox.vue'
+import { searchImages } from './http/index.js'
 
-const initialImages = [
-  {
-    id: 1, src: 'https://picsum.photos/seed/1/600/400', title: '晨曦中的山峦', author: 'Alice', likes: 312, views: 4820,
-    info: `絵柄がシイティっぽいなNYN姉貴\nPixiv ID: 149802306\n投稿者(id=57754852): ニシアカ_Nishiaka\n\nNYN姉貴 | クッキー☆ | ネズミ`,
-  },
-  {
-    id: 2, src: 'https://picsum.photos/seed/2/600/400', title: '静谧的湖面', author: 'Bob', likes: 198, views: 3100,
-    info: `im11768942\nウェディングフォトRRHS\n投稿者: Rio (/user/illust/139333122)\n\nキャラクター | クッキー☆ | RRM姉貴 | HSKRHSB | 刀剣淫夢 | RRHS`,
-  },
-  {
-    id: 3, src: 'https://picsum.photos/seed/3/600/400', title: '城市夜景', author: 'Carol', likes: 540, views: 8900,
-    info: `投稿者: 午前二時デフォメト\nおねがい…♡\n\n1878604988479598834`,
-  },
-  { id: 4,  src: 'https://picsum.photos/seed/4/600/400',  title: '秋日落叶',  author: 'Dave',  likes: 87,  views: 1200 },
-  { id: 5,  src: 'https://picsum.photos/seed/5/600/400',  title: '海边日落',  author: 'Eva',   likes: 420, views: 6300 },
-  { id: 6,  src: 'https://picsum.photos/seed/6/600/400',  title: '雪山远眺',  author: 'Frank', likes: 260, views: 4100 },
-  { id: 7,  src: 'https://picsum.photos/seed/7/600/400',  title: '森林小径',  author: 'Grace', likes: 155, views: 2700 },
-  { id: 8,  src: 'https://picsum.photos/seed/8/600/400',  title: '沙漠之夜',  author: 'Henry', likes: 330, views: 5500 },
-  { id: 9,  src: 'https://picsum.photos/seed/9/600/400',  title: '春花烂漫',  author: 'Iris',  likes: 210, views: 3800 },
-  { id: 10, src: 'https://picsum.photos/seed/10/600/400', title: '港湾渔船',  author: 'Jack',  likes: 99,  views: 1500 },
-  { id: 11, src: 'https://picsum.photos/seed/11/600/400', title: '高原牧场',  author: 'Kate',  likes: 178, views: 2900 },
-  { id: 12, src: 'https://picsum.photos/seed/12/600/400', title: '古镇黄昏',  author: 'Leo',   likes: 450, views: 7200 },
-  { id: 13, src: 'https://i1.hdslb.com/bfs/new_dyn/3185ea7829dc5bd98cfc4b4a89079647343118157.png@1052w_!web-dynamic.avif', title: 'B站测试图',  author: 'Test', likes: 0, views: 0 },
-  { id: 14, src: 'https://i1.hdslb.com/bfs/new_dyn/0e794f4ab5fb2d97a619dea734bf31c4343118157.jpg@1052w_!web-dynamic.avif', title: 'B站测试图2', author: 'Test', likes: 0, views: 0 },
-]
+// 查询参数表单
+const searchForm = reactive({
+  pn:          1,       // 页码
+  ps:          20,      // 每页数量
+  order:       'default',  // default | random | time_asc（对应 SortDropdown 第一项）
+  filter_type: ['all'],    // ['all'] = 全部；['pixiv','x'] 等组合（对应 FilterDropdown）
+  filter_user: [],         // [] = 全部；[343118157, ...] = 特定用户 UID 列表
+})
 
-const PAGE_SIZE = 12
-let nextId = 1
-let nextSeed = 1
-let isFirstLoad = true
+// sort dropdown 选项 → order 字段映射
+const ORDER_MAP = {
+  '默认（时间正序）': 'default',
+  '随机排序':        'random',
+  '时间倒序':        'time_asc',
+}
+
+// filter dropdown type 选项 → filter_type 字段映射
+const TYPE_MAP = { Pixiv: 'pixiv', X: 'x', NicoSeiga: 'nico' }
+
+// filter dropdown user 选项 → UID 映射
+const USER_MAP = {
+  '银饼综合推送bot':     343118157,
+  'クッキー_イラストBot': 495374011,
+  '时云_饼图搬运':       161770294,
+  '时云_电脑网后门':     407529244,
+}
+
+// 从 localStorage 恢复 sort/filter，与 FilterDropdown 保持同步
+function applyStoredFilters() {
+  try {
+    const sort = JSON.parse(localStorage.getItem('ck_sort') ?? 'null')
+    if (sort?.sort) searchForm.order = ORDER_MAP[sort.sort] ?? searchForm.order
+  } catch {}
+  try {
+    const filter = JSON.parse(localStorage.getItem('ck_filter') ?? 'null')
+    if (filter) {
+      const types = filter.types ?? []
+      searchForm.filter_type = types.includes('全部') || !types.length
+        ? ['all']
+        : types.map(t => TYPE_MAP[t] ?? t)
+
+      const users = filter.users ?? []
+      searchForm.filter_user = users.includes('全部') || !users.length
+        ? []
+        : users.map(u => USER_MAP[u]).filter(Boolean)
+    }
+  } catch {}
+}
+applyStoredFilters()
+
+let initialized = false   // onMounted 完成前不因 filter 变化重复触发搜索
+let filterTimer = null
 
 const allImages = ref([])
-const isSearching = ref(false)  // 搜索/初始加载中 → 骨架屏
+const isSearching = ref(false)   // 搜索/初始加载中 → 骨架屏
 const isLoadingMore = ref(false) // 下拉加载更多 → 底部提示
+let currentQuery = ''
+let hasMore = true
 
-// 搜索：关闭灯箱 → 骨架屏 → 100ms 后返回结果
+// 搜索：关闭灯箱 → 骨架屏 → 请求 API
 async function doSearch(query) {
   activeIndex.value = null
   isSearching.value = true
   allImages.value = []
+  searchForm.pn = 1
+  currentQuery = query
+  hasMore = true
 
-  await new Promise(r => setTimeout(r, 100))
-
-  if (isFirstLoad && !query) {
-    // 首次加载：返回预置图片
-    allImages.value = [...initialImages]
-    nextId = initialImages.length + 1
-    nextSeed = 20
-    isFirstLoad = false
-  } else {
-    // 后续搜索：生成模拟结果（seed 按 query 字符码偏移）
-    const base = query
-      ? query.split('').reduce((s, c) => s + c.charCodeAt(0), 0) % 800 + 100
-      : Math.floor(Math.random() * 800) + 100
-    nextSeed = base
-    nextId = 1
-    allImages.value = Array.from({ length: PAGE_SIZE }, (_, i) => ({
-      id: nextId + i,
-      src: `https://picsum.photos/seed/${nextSeed + i}/600/400`,
-      title: query ? `${query} · 图片 ${nextId + i}` : `图片 ${nextId + i}`,
-      author: `User${nextId + i}`,
-      likes: Math.floor(Math.random() * 500),
-      views: Math.floor(Math.random() * 9000) + 500,
-    }))
-    nextId += PAGE_SIZE
-    nextSeed += PAGE_SIZE
+  try {
+    const result = await searchImages(searchForm, query)
+    allImages.value = result.images
+    if (result.images.length < searchForm.ps) hasMore = false
+    window.scrollTo({ top: 0, behavior: 'instant' })
+  } finally {
+    isSearching.value = false
   }
-
-  isSearching.value = false
 }
 
 // 无限滚动加载更多
 async function loadMore() {
-  if (isLoadingMore.value || isSearching.value) return
+  if (isLoadingMore.value || isSearching.value || !hasMore) return
   isLoadingMore.value = true
-  await new Promise(r => setTimeout(r, 600))
-  const batch = Array.from({ length: PAGE_SIZE }, (_, i) => ({
-    id: nextId + i,
-    src: `https://picsum.photos/seed/${nextSeed + i}/600/400`,
-    title: `图片 ${nextId + i}`,
-    author: `User${nextId + i}`,
-    likes: Math.floor(Math.random() * 500),
-    views: Math.floor(Math.random() * 9000) + 500,
-  }))
-  nextId += PAGE_SIZE
-  nextSeed += PAGE_SIZE
-  allImages.value.push(...batch)
-  isLoadingMore.value = false
+  searchForm.pn++
+
+  try {
+    const result = await searchImages(searchForm, currentQuery)
+    allImages.value.push(...result.images)
+    if (result.images.length < searchForm.ps) hasMore = false
+  } finally {
+    isLoadingMore.value = false
+  }
 }
 
 const activeIndex = ref(null)
@@ -112,13 +116,39 @@ function onTagClick(tag) {
   doSearch(tag)
 }
 
+function onSortChange(selected) {
+  searchForm.order = ORDER_MAP[selected['sort']] ?? 'default'
+  if (initialized) doSearch(currentQuery)
+}
+
+function onFilterChange(selected) {
+  const types = selected['types'] ?? []
+  searchForm.filter_type = types.includes('全部') || !types.length
+    ? ['all']
+    : types.map(t => TYPE_MAP[t] ?? t)
+
+  const users = selected['users'] ?? []
+  searchForm.filter_user = users.includes('全部') || !users.length
+    ? []
+    : users.map(u => USER_MAP[u]).filter(Boolean)
+
+  if (!initialized) return
+  clearTimeout(filterTimer)
+  filterTimer = setTimeout(() => doSearch(currentQuery), 400)
+}
+
 function goHome() {
   searchQuery.value = ''
-  isFirstLoad = true
   doSearch('')
 }
 
-onMounted(() => doSearch(''))
+onMounted(async () => {
+  try {
+    await doSearch('')
+  } finally {
+    initialized = true
+  }
+})
 </script>
 
 <template>
@@ -128,6 +158,8 @@ onMounted(() => doSearch(''))
       v-model:searchQuery="searchQuery"
       @search="onSearch"
       @home="goHome"
+      @sort-change="onSortChange"
+      @filter-change="onFilterChange"
     />
     <ImageList
       ref="imageListRef"

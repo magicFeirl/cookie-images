@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import ImageInfoDrawer from './ImageInfoDrawer.vue'
+import { THUMB_SUFFIX } from '../config.js'
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -16,10 +17,18 @@ const isOpen = computed(() => props.modelValue !== null && props.modelValue !== 
 const activeImage = computed(() => isOpen.value ? props.images[props.modelValue] : null)
 const hasInfo = computed(() => !!activeImage.value?.info)
 
-// 切换图片时重置缩放，保留抽屉状态
-watch(() => props.modelValue, () => {
+const isLoading = ref(false)
+
+// 切换图片时重置缩放，标记加载中
+watch(() => props.modelValue, (val) => {
   zoomed.value = false
+  if (val !== null && val !== undefined) isLoading.value = true
 })
+
+function onImgLoad() {
+  isLoading.value = false
+  emit('image-loaded', props.modelValue)
+}
 
 // 锁定/恢复 body 滚动条
 watch(isOpen, (open) => {
@@ -98,25 +107,39 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
           <ImageInfoDrawer
             v-if="drawerOpen && hasInfo"
             :info="activeImage.info"
+            :dyn-id="activeImage.dynId"
+            :src="activeImage.src"
             @tag-click="emit('tag-click', $event)"
           />
         </Transition>
 
         <!-- 图片 -->
         <div class="img-wrap">
+          <!-- 缩略图占位（加载中模糊显示，加载完后淡出） -->
+          <Transition name="thumb-fade">
+            <img
+              v-if="isLoading"
+              :src="activeImage.src + THUMB_SUFFIX"
+              class="img-thumb"
+              aria-hidden="true"
+            />
+          </Transition>
+          <!-- 全图 -->
           <img
+            :key="modelValue"
             :src="activeImage.src"
             :alt="activeImage.title"
-            :class="{ zoomed }"
+            :class="{ zoomed, 'img-hidden': isLoading }"
             @click.stop="zoomed = !zoomed"
-            @load="emit('image-loaded', modelValue)"
+            @load="onImgLoad"
           />
+          <!-- 加载旋转指示器 -->
+          <div v-if="isLoading" class="img-spinner" />
         </div>
 
         <!-- 底部信息 -->
         <div class="footer" @click.stop>
           <p class="footer-title">{{ activeImage.title }}</p>
-          <p class="footer-author">{{ activeImage.author }}</p>
           <p class="footer-counter">{{ modelValue + 1 }} / {{ images.length }}</p>
         </div>
       </div>
@@ -170,6 +193,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 /* 图片 */
 .img-wrap {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -187,13 +211,57 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   cursor: zoom-in;
   transform: scale(1);
   transform-origin: center center;
-  transition: transform 0.3s ease;
+  transition: transform 0.3s ease, opacity 0.25s ease;
   user-select: none;
 }
 
 .img-wrap img.zoomed {
   transform: scale(1.5);
   cursor: zoom-out;
+}
+
+/* 全图加载中隐藏（缩略图在后面显示） */
+.img-wrap img.img-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 缩略图占位：绝对定位 */
+.img-thumb {
+  position: absolute;
+  max-width: 90vw;
+  max-height: 80vh;
+  object-fit: contain;
+  border-radius: 6px;
+  pointer-events: none;
+}
+
+/* 缩略图淡出 */
+.thumb-fade-leave-active {
+  transition: opacity 0.25s ease;
+  position: absolute;
+}
+.thumb-fade-leave-to {
+  opacity: 0;
+}
+
+/* 旋转加载指示器 */
+@keyframes spin {
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.img-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.8);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  animation: spin 0.7s linear infinite;
+  pointer-events: none;
 }
 
 /* 底部 */

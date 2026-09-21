@@ -16,18 +16,32 @@ const props = defineProps({
       { key: 'users', label: '搬运用户', options: ['UserA', 'UserB', 'UserC'] },
     ],
   },
+  storageKey: {
+    type: String,
+    default: '',
+  },
 })
 
 const emit = defineEmits(['change'])
 
 const isOpen = ref(false)
 
-// 初始 selected：单选取第一项（字符串），多选取 ['全部']
-const selected = ref(
-  Object.fromEntries(
+function defaultSelected() {
+  return Object.fromEntries(
     props.groups.map(g => [g.key, g.single ? g.options[0] : ['全部']])
   )
-)
+}
+
+// 初始 selected：优先从 localStorage 恢复，否则使用默认值
+const selected = ref((() => {
+  if (props.storageKey) {
+    try {
+      const saved = JSON.parse(localStorage.getItem(props.storageKey) ?? 'null')
+      if (saved) return saved
+    } catch {}
+  }
+  return defaultSelected()
+})())
 
 function isChecked(groupKey, value) {
   const g = props.groups.find(x => x.key === groupKey)
@@ -52,7 +66,11 @@ function toggle(groupKey, value) {
       selected.value[groupKey] = [...without, value]
     }
   }
-  emit('change', JSON.parse(JSON.stringify(selected.value)))
+  const snapshot = JSON.parse(JSON.stringify(selected.value))
+  if (props.storageKey) {
+    localStorage.setItem(props.storageKey, JSON.stringify(snapshot))
+  }
+  emit('change', snapshot)
 }
 
 // 按钮徽标：非默认状态的选项数
