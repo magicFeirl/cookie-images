@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import ImageInfoDrawer from './ImageInfoDrawer.vue'
+import { FULL_SUFFIX } from '../config.js'
 
 const props = defineProps({
   images: { type: Array, default: () => [] },
@@ -99,7 +100,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
             v-if="drawerOpen && hasInfo"
             :info="activeImage.info"
             :dyn-id="activeImage.dynId"
-            :src="activeImage.src"
+            :src="activeImage.src + FULL_SUFFIX"
             @tag-click="emit('tag-click', $event)"
           />
         </Transition>
@@ -107,7 +108,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
         <!-- 图片 -->
         <div class="img-wrap">
           <img
-            :src="activeImage.src"
+            :src="activeImage.src + FULL_SUFFIX"
             :alt="activeImage.title"
             :class="{ zoomed }"
             @click.stop="zoomed = !zoomed"

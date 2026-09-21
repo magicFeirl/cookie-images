@@ -4,12 +4,17 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
+const BUILD_OUT_DIR = process.env.BUILD_OUT_DIR ?? 'cookie-images'
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     vue(),
     vueDevTools(),
   ],
+  build: {
+    outDir: BUILD_OUT_DIR,
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
