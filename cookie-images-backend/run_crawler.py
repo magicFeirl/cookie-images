@@ -12,13 +12,13 @@ for uid in UID_LIST:
 
     for page in range(MAX_CRAW_DRAW_PAGE):
         items = crawler.fetch_draw_doc_list(uid=uid, page_num=page)
+        count += len(items)
 
-        if not items:
+        if not items or page == MAX_CRAW_DRAW_PAGE - 1:
             print(f"UID: {uid} 爬取完毕")
-            print(f"uid={uid} 入库 {count} 条数据")
+            print(f"uid={uid} 入库/更新 {count} 条数据")
             break
 
         DrawTable.insert_many(items)
-        count += len(items)
 
         print(f"Crawling {uid} no.{page} page data")

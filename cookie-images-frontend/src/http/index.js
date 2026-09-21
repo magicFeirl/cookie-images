@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? 'http://192.168.10.15:8000',
+  baseURL: '/api',
   timeout: 10000,
   // 数组参数序列化为重复 key：filter_type=pixiv&filter_type=x
   // 空数组直接省略，不发送该参数
@@ -37,15 +37,15 @@ function normalizeImages(item) {
   const pics = (item.pictures ?? []).flat().filter(src => typeof src === 'string' && src)
   if (!pics.length) return []
   return pics.map((src, i) => ({
-    id:     pics.length === 1 ? item.dyn_id : `${item.dyn_id}_${i}`,
-    dynId:  item.dyn_id,
+    id: pics.length === 1 ? item.dyn_id : `${item.dyn_id}_${i}`,
+    dynId: item.dyn_id,
     src,
-    title:  item.title || '',
+    title: item.title || '',
     author: String(item.poster_uid),
-    likes:  item.like  ?? 0,
-    views:  item.view  ?? 0,
-    ctime:  item.ctime ?? null,
-    info:   item.description || undefined,
+    likes: item.like ?? 0,
+    views: item.view ?? 0,
+    ctime: item.ctime ?? null,
+    info: item.description || undefined,
   }))
 }
 
@@ -62,9 +62,9 @@ function normalizeImages(item) {
  */
 export async function searchImages(searchForm, query = '') {
   const params = {
-    pn:          searchForm.pn,
-    ps:          searchForm.ps,
-    order:       searchForm.order,
+    pn: searchForm.pn,
+    ps: searchForm.ps,
+    order: searchForm.order,
     filter_type: searchForm.filter_type,
     filter_user: searchForm.filter_user,
   }
@@ -72,8 +72,8 @@ export async function searchImages(searchForm, query = '') {
 
   const body = await http.get('/', { params })
   return {
-    pn:     body.pn,
-    ps:     body.ps,
+    pn: body.pn,
+    ps: body.ps,
     images: (body.data ?? []).flatMap(normalizeImages),
   }
 }
