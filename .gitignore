@@ -1,0 +1,7 @@
+**/.
+**/__pycache__
+**/.*
+**/*.sqlite3-*
+cookie-images-frontend/cookie-images
+config.py
+
